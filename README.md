@@ -23,14 +23,6 @@ pnpm dev
 
 访问终端显示的本地地址，默认通常为 `http://localhost:5173`。
 
-网络不可用时，可通过本地代理安装依赖：
-
-```bash
-HTTP_PROXY=http://127.0.0.1:10809 \
-HTTPS_PROXY=http://127.0.0.1:10809 \
-pnpm install
-```
-
 ## 构建
 
 ```bash

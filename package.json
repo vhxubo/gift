@@ -2,6 +2,7 @@
   "name": "gift-ledger",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "pnpm@11.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
