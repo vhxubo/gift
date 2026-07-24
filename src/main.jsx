@@ -3,12 +3,13 @@ import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, CalendarDays, ChartNoAxesCombined, ChevronRight, CirclePlus, Download,
   Ellipsis, FileUp, FolderPlus, Gift, HandCoins, Pencil, ReceiptText,
-  Search, Settings2, Trash2,
+  Moon, Search, Settings2, Sun, Trash2,
 } from 'lucide-react';
 import './styles.css';
 import { formatChineseMoney } from './money.js';
 
 const STORAGE_KEY = 'gift-ledger-v1';
+const THEME_KEY = 'gift-ledger-theme-preference';
 const methods = ['微信', '支付宝', '现金', '其他'];
 const sides = ['男方', '女方'];
 const currency = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -52,9 +53,29 @@ function App() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(null);
   const [toast, setToast] = useState('');
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'light');
+  const [themePreference, setThemePreference] = useState(() => localStorage.getItem(THEME_KEY) || 'system');
   const importRef = useRef();
 
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(data)), [data]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#151a1a' : '#fbfbfa');
+  }, [theme]);
+  useEffect(() => {
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const syncTheme = () => setTheme(media.matches ? 'dark' : 'light');
+    if (themePreference === 'system') {
+      syncTheme();
+      media.addEventListener('change', syncTheme);
+      return () => media.removeEventListener('change', syncTheme);
+    }
+    setTheme(themePreference);
+  }, [themePreference]);
+  useEffect(() => {
+    if (themePreference === 'system') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, themePreference);
+  }, [themePreference]);
   useEffect(() => {
     if (!data.projects.some(project => project.id === projectId)) setProjectId(data.projects[0]?.id || '');
   }, [data.projects, projectId]);
@@ -151,7 +172,10 @@ function App() {
         <div className="brand-mark" aria-hidden="true">礼</div>
         <div><p>人情往来</p><h1>礼簿</h1></div>
       </div>
-      <IconButton label="项目与备份" onClick={() => setPage({ type: 'project-menu' })}><Ellipsis /></IconButton>
+      <div className="header-actions">
+        <IconButton label={theme === 'dark' ? '切换至浅色模式' : '切换至深色模式'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Moon /> : <Sun />}</IconButton>
+        <IconButton label="项目与备份" onClick={() => setPage({ type: 'project-menu' })}><Ellipsis /></IconButton>
+      </div>
     </header>
 
     <section className="project-switcher" aria-label="项目选择">
