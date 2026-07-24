@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  CalendarDays, ChartNoAxesCombined, ChevronRight, CirclePlus, Download,
+  ArrowLeft, CalendarDays, ChartNoAxesCombined, ChevronRight, CirclePlus, Download,
   Ellipsis, FileUp, FolderPlus, Gift, HandCoins, Pencil, ReceiptText,
-  Search, Settings2, Trash2, X,
+  Search, Settings2, Trash2,
 } from 'lucide-react';
 import './styles.css';
+import { formatChineseMoney } from './money.js';
 
 const STORAGE_KEY = 'gift-ledger-v1';
 const methods = ['微信', '支付宝', '现金', '其他'];
 const sides = ['男方', '女方'];
 const currency = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-const id = () => crypto.randomUUID();
+const id = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const formatMoney = value => currency.format(Number(value) || 0);
 const formatDate = value => new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(new Date(value));
 const emptyData = () => ({ projects: [], records: [] });
@@ -49,7 +50,7 @@ function App() {
   const [projectId, setProjectId] = useState(() => readData().projects[0]?.id || '');
   const [view, setView] = useState('records');
   const [query, setQuery] = useState('');
-  const [sheet, setSheet] = useState(null);
+  const [page, setPage] = useState(null);
   const [toast, setToast] = useState('');
   const importRef = useRef();
 
@@ -74,20 +75,20 @@ function App() {
     const project = { id: id(), name: values.name.trim(), date: values.date || '', createdAt: new Date().toISOString() };
     setData(current => ({ ...current, projects: [...current.projects, project] }));
     setProjectId(project.id);
-    setSheet(null);
+    setPage(null);
     setToast('项目已创建');
   };
 
   const saveProject = values => {
     setData(current => ({ ...current, projects: current.projects.map(project => project.id === projectId ? { ...project, name: values.name.trim(), date: values.date || '' } : project) }));
-    setSheet(null);
+    setPage(null);
     setToast('项目已更新');
   };
 
   const deleteProject = () => {
     if (!window.confirm(`删除“${currentProject.name}”及其 ${records.length} 条礼金记录？此操作无法撤销。`)) return;
     setData(current => ({ projects: current.projects.filter(project => project.id !== projectId), records: current.records.filter(record => record.projectId !== projectId) }));
-    setSheet(null);
+    setPage(null);
     setToast('项目已删除');
   };
 
@@ -98,14 +99,14 @@ function App() {
       createdAt: recordId ? data.records.find(item => item.id === recordId)?.createdAt : new Date().toISOString(),
     };
     setData(current => ({ ...current, records: recordId ? current.records.map(item => item.id === recordId ? record : item) : [...current.records, record] }));
-    setSheet(null);
+    setPage(null);
     setToast(recordId ? '记录已更新' : '礼金已记入');
   };
 
   const deleteRecord = record => {
     if (!window.confirm(`删除 ${record.nickname} 的 ${formatMoney(record.amount)} 记录？`)) return;
     setData(current => ({ ...current, records: current.records.filter(item => item.id !== record.id) }));
-    setSheet(null);
+    setPage(null);
     setToast('记录已删除');
   };
 
@@ -131,6 +132,7 @@ function App() {
         setData(normalized);
         setProjectId(normalized.projects[0]?.id || '');
         setView('records');
+        setPage(null);
         setToast('备份已全量更新');
       } catch {
         window.alert('不是有效的礼簿备份文件。');
@@ -139,46 +141,46 @@ function App() {
     reader.readAsText(file);
   };
 
+  if (page?.type === 'project') return <ProjectPage project={page.mode === 'edit' ? currentProject : null} onBack={() => setPage(null)} onSave={page.mode === 'edit' ? saveProject : addProject} onDelete={page.mode === 'edit' ? deleteProject : null} />;
+  if (page?.type === 'record') return <RecordPage record={page.record} existing={records} onBack={() => setPage(null)} onSave={saveRecord} onDelete={deleteRecord} />;
+  if (page?.type === 'project-menu') return <MenuPage onBack={() => setPage(null)} onExport={exportData} importRef={importRef} onImport={importData} />;
+
   return <main className="app-shell" id="main-content">
     <header className="app-header">
       <div className="brand-lockup" aria-label="礼簿">
         <div className="brand-mark" aria-hidden="true">礼</div>
         <div><p>人情往来</p><h1>礼簿</h1></div>
       </div>
-      <IconButton label="项目与备份" onClick={() => setSheet({ type: 'project-menu' })}><Ellipsis /></IconButton>
+      <IconButton label="项目与备份" onClick={() => setPage({ type: 'project-menu' })}><Ellipsis /></IconButton>
     </header>
 
     <section className="project-switcher" aria-label="项目选择">
       <p className="section-label">当前项目</p>
       <div className="project-strip">
         {data.projects.map(project => <button key={project.id} type="button" className={`project-chip ${project.id === projectId ? 'selected' : ''}`} onClick={() => setProjectId(project.id)}>{project.name}</button>)}
-        <IconButton className="project-add" label="新增项目" onClick={() => setSheet({ type: 'project', mode: 'new' })}><FolderPlus /></IconButton>
+        <IconButton className="project-add" label="新增项目" onClick={() => setPage({ type: 'project', mode: 'new' })}><FolderPlus /></IconButton>
       </div>
     </section>
 
-    {!currentProject ? <Empty onCreate={() => setSheet({ type: 'project', mode: 'new' })} /> : <>
+    {!currentProject ? <Empty onCreate={() => setPage({ type: 'project', mode: 'new' })} /> : <>
       <section className="project-overview" aria-labelledby="project-name">
         <div>
           <p><CalendarDays size={14} aria-hidden="true" />{currentProject.date ? formatDate(currentProject.date) : '未设日期'}</p>
           <h2 id="project-name">{currentProject.name}</h2>
         </div>
-        <button className="quiet-button" type="button" onClick={() => setSheet({ type: 'project', mode: 'edit' })}><Settings2 size={16} aria-hidden="true" />管理</button>
+        <button className="quiet-button" type="button" onClick={() => setPage({ type: 'project', mode: 'edit' })}><Settings2 size={16} aria-hidden="true" />管理</button>
       </section>
       {view === 'records'
-        ? <Records records={visibleRecords} count={records.length} total={total} query={query} setQuery={setQuery} onAdd={() => setSheet({ type: 'record' })} onEdit={record => setSheet({ type: 'record', record })} />
+        ? <Records records={visibleRecords} count={records.length} total={total} query={query} setQuery={setQuery} onAdd={() => setPage({ type: 'record' })} onEdit={record => setPage({ type: 'record', record })} />
         : <Stats records={records} data={data} />}
     </>}
 
     <nav className="bottom-nav" aria-label="主导航">
       <button type="button" className={view === 'records' ? 'active' : ''} onClick={() => setView('records')}><ReceiptText size={20} aria-hidden="true" /><span>礼金</span></button>
-      <button type="button" className="add-button" onClick={() => currentProject && setSheet({ type: 'record' })} disabled={!currentProject} aria-label="新增礼金" title="新增礼金"><CirclePlus size={27} aria-hidden="true" /></button>
+      <button type="button" className="add-button" onClick={() => currentProject && setPage({ type: 'record' })} disabled={!currentProject} aria-label="新增礼金" title="新增礼金"><CirclePlus size={27} aria-hidden="true" /></button>
       <button type="button" className={view === 'stats' ? 'active' : ''} onClick={() => setView('stats')}><ChartNoAxesCombined size={20} aria-hidden="true" /><span>统计</span></button>
     </nav>
 
-    {sheet?.type === 'project' && <ProjectSheet project={sheet.mode === 'edit' ? currentProject : null} onClose={() => setSheet(null)} onSave={sheet.mode === 'edit' ? saveProject : addProject} onDelete={sheet.mode === 'edit' ? deleteProject : null} />}
-    {sheet?.type === 'record' && <RecordSheet record={sheet.record} existing={records} onClose={() => setSheet(null)} onSave={saveRecord} onDelete={deleteRecord} />}
-    {sheet?.type === 'project-menu' && <MenuSheet onClose={() => setSheet(null)} onExport={exportData} onImport={() => importRef.current.click()} />}
-    <input ref={importRef} className="visually-hidden" type="file" accept="application/json" onChange={importData} />
     {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
   </main>;
 }
@@ -224,16 +226,17 @@ function Stats({ records, data }) {
 function Metric({ label, value }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
 function StatList({ title, items, total }) { return <section className="stat-section"><div className="section-title"><h3>{title}</h3></div>{items.map(item => <div className="bar-row" key={item.name}><div><span>{item.name}</span><b>{formatMoney(item.value)} <small>{item.count !== undefined && `${item.count} 人`}</small></b></div><i><em style={{ transform: `scaleX(${total ? item.value / total : 0})` }} /></i></div>)}</section>; }
 
-function ProjectSheet({ project, onClose, onSave, onDelete }) {
-  return <Sheet title={project ? '管理项目' : '新建项目'} onClose={onClose}><form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get('name')).trim(); if (name) onSave({ name, date: form.get('date') }); }}><label className="field">项目名称<input name="name" required maxLength="30" defaultValue={project?.name} placeholder="例如：张李婚礼" autoFocus /></label><label className="field">日期 <span>可选</span><input name="date" type="date" defaultValue={project?.date} /></label><button className="primary-button full" type="submit"><Pencil size={17} aria-hidden="true" />保存项目</button></form>{onDelete && <button className="danger-button" type="button" onClick={onDelete}><Trash2 size={17} aria-hidden="true" />删除项目</button>}</Sheet>;
+function ProjectPage({ project, onBack, onSave, onDelete }) {
+  return <Page title={project ? '管理项目' : '新建项目'} onBack={onBack}><form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get('name')).trim(); if (name) onSave({ name, date: form.get('date') }); }}><label className="field">项目名称<input name="name" required maxLength="30" defaultValue={project?.name} placeholder="例如：张李婚礼" /></label><label className="field">日期 <span>可选</span><input name="date" type="date" defaultValue={project?.date} /></label><button className="primary-button full" type="submit"><Pencil size={17} aria-hidden="true" />保存项目</button></form>{onDelete && <button className="danger-button" type="button" onClick={onDelete}><Trash2 size={17} aria-hidden="true" />删除项目</button>}</Page>;
 }
 
-function RecordSheet({ record, existing, onClose, onSave, onDelete }) {
-  return <Sheet title={record ? '编辑礼金' : '新增礼金'} onClose={onClose}><form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); const nickname = String(form.get('nickname')).trim(); const amount = Number(form.get('amount')); if (!nickname || !(amount > 0)) return; if (!record && existing.some(item => item.nickname === nickname) && !window.confirm(`已有“${nickname}”的记录，仍要新增吗？`)) return; onSave({ nickname, name: form.get('name'), amount, method: form.get('method'), side: form.get('side'), note: form.get('note') }, record?.id); }}><div className="form-grid"><label className="field">昵称 <b>*</b><input name="nickname" required maxLength="30" defaultValue={record?.nickname} placeholder="例如：表哥、王姐" autoFocus /></label><label className="field">金额 <b>*</b><input name="amount" required inputMode="decimal" type="number" min="0.01" step="0.01" defaultValue={record?.amount} placeholder="0.00" /></label></div><label className="field">真实姓名 <span>可选</span><input name="name" maxLength="30" defaultValue={record?.name} placeholder="知道时再补充" /></label><ChoiceGroup legend="收款方式" name="method" options={methods} selected={record?.method || methods[0]} /><ChoiceGroup legend="归属" name="side" options={sides} selected={record?.side || sides[0]} /><label className="field">备注 <span>可选</span><input name="note" maxLength="60" defaultValue={record?.note} placeholder="关系、家庭或特别说明" /></label><button className="primary-button full" type="submit"><HandCoins size={17} aria-hidden="true" />{record ? '保存修改' : '记入礼金'}</button></form>{record && <button className="danger-button" type="button" onClick={() => onDelete(record)}><Trash2 size={17} aria-hidden="true" />删除记录</button>}</Sheet>;
+function RecordPage({ record, existing, onBack, onSave, onDelete }) {
+  const [amount, setAmount] = useState(record?.amount ?? '');
+  return <Page title={record ? '编辑礼金' : '新增礼金'} onBack={onBack}><form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); const nickname = String(form.get('nickname')).trim(); const value = Number(form.get('amount')); if (!nickname || !(value > 0)) return; if (!record && existing.some(item => item.nickname === nickname) && !window.confirm(`已有“${nickname}”的记录，仍要新增吗？`)) return; onSave({ nickname, name: form.get('name'), amount: value, method: form.get('method'), side: form.get('side'), note: form.get('note') }, record?.id); }}><div className="form-grid"><label className="field">昵称 <b>*</b><input name="nickname" required maxLength="30" defaultValue={record?.nickname} placeholder="例如：表哥、王姐" /></label><label className="field">金额 <b>*</b><input name="amount" required inputMode="decimal" type="number" min="0.01" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" /></label></div><output className="amount-upper" aria-live="polite">{formatChineseMoney(amount) ? `金额大写：${formatChineseMoney(amount)}` : '金额大写：--'}</output><label className="field">真实姓名 <span>可选</span><input name="name" maxLength="30" defaultValue={record?.name} placeholder="知道时再补充" /></label><ChoiceGroup legend="收款方式" name="method" options={methods} selected={record?.method || methods[0]} /><ChoiceGroup legend="归属" name="side" options={sides} selected={record?.side || sides[0]} /><label className="field">备注 <span>可选</span><input name="note" maxLength="60" defaultValue={record?.note} placeholder="关系、家庭或特别说明" /></label><button className="primary-button full" type="submit"><HandCoins size={17} aria-hidden="true" />{record ? '保存修改' : '记入礼金'}</button></form>{record && <button className="danger-button" type="button" onClick={() => onDelete(record)}><Trash2 size={17} aria-hidden="true" />删除记录</button>}</Page>;
 }
 
 function ChoiceGroup({ legend, name, options, selected }) { return <fieldset><legend>{legend}</legend><div className="choice-row">{options.map(option => <label key={option}><input type="radio" name={name} value={option} defaultChecked={selected === option} /><span>{option}</span></label>)}</div></fieldset>; }
-function MenuSheet({ onClose, onExport, onImport }) { return <Sheet title="项目与备份" onClose={onClose}><button className="menu-item" type="button" onClick={onExport}><Download size={20} aria-hidden="true" /><span>导出全部数据<small>生成 JSON 备份文件</small></span><ChevronRight size={18} aria-hidden="true" /></button><button className="menu-item" type="button" onClick={onImport}><FileUp size={20} aria-hidden="true" /><span>全量导入备份<small>会覆盖本机所有项目和记录</small></span><ChevronRight size={18} aria-hidden="true" /></button></Sheet>; }
-function Sheet({ title, onClose, children }) { return <div className="sheet-backdrop" role="presentation" onPointerDown={onClose}><section className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onPointerDown={event => event.stopPropagation()}><div className="sheet-handle" /><header><h2 id="sheet-title">{title}</h2><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>{children}</section></div>; }
+function MenuPage({ onBack, onExport, importRef, onImport }) { return <Page title="项目与备份" onBack={onBack}><button className="menu-item" type="button" onClick={onExport}><Download size={20} aria-hidden="true" /><span>导出全部数据<small>生成 JSON 备份文件</small></span><ChevronRight size={18} aria-hidden="true" /></button><button className="menu-item" type="button" onClick={() => importRef.current.click()}><FileUp size={20} aria-hidden="true" /><span>全量导入备份<small>会覆盖本机所有项目和记录</small></span><ChevronRight size={18} aria-hidden="true" /></button><input ref={importRef} className="visually-hidden" type="file" accept="application/json" onChange={onImport} /></Page>; }
+function Page({ title, onBack, children }) { return <main className="form-page"><header><IconButton label="返回" onClick={onBack}><ArrowLeft /></IconButton><h1>{title}</h1><span aria-hidden="true" /></header><section className="form-page-body">{children}</section></main>; }
 
 createRoot(document.getElementById('root')).render(<App />);
